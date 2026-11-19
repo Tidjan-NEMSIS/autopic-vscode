@@ -50,6 +50,7 @@ export class AutopicSidebarViewProvider implements vscode.WebviewViewProvider {
     if (!this._view) return;
 
     switch (message.command) {
+      case 'ready':
       case 'refreshProject':
         await this.sendProjectContext();
         break;

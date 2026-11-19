@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { IllustrationCandidate, ProjectContext } from '../types/messages';
 
-// Dynamic import or require for tidjan-autopic
 let autopicEngine: any = null;
 
 function getAutopic() {
@@ -11,7 +10,7 @@ function getAutopic() {
     try {
       autopicEngine = require('tidjan-autopic');
     } catch (e) {
-      console.warn('Could not load tidjan-autopic from node_modules, falling back to local fallback');
+      console.warn('Could not load tidjan-autopic, fallback will be used');
     }
   }
   return autopicEngine;
@@ -34,13 +33,12 @@ export class AutopicBridge {
     if (autopic && typeof autopic.inspectProject === 'function') {
       try {
         const inspection = autopic.inspectProject(root);
-        if (inspection.framework) framework = inspection.framework;
-        if (inspection.styling?.palette) palette = inspection.styling.palette;
+        if (inspection?.framework) framework = inspection.framework;
+        if (inspection?.styling?.palette) palette = inspection.styling.palette;
       } catch (err) {
         console.error('Inspection failed:', err);
       }
     } else {
-      // Direct file inspection fallback
       const pkgPath = path.join(root, 'package.json');
       if (fs.existsSync(pkgPath)) {
         try {
@@ -53,7 +51,6 @@ export class AutopicBridge {
         } catch {}
       }
 
-      // Check tailwind config for colors
       for (const twFile of ['tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.mjs']) {
         const twPath = path.join(root, twFile);
         if (fs.existsSync(twPath)) {
@@ -67,7 +64,6 @@ export class AutopicBridge {
       }
     }
 
-    // Detect theme darkness from VS Code
     const activeColorTheme = vscode.window.activeColorTheme;
     isDark = activeColorTheme.kind === vscode.ColorThemeKind.Dark || activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
 
@@ -89,23 +85,39 @@ export class AutopicBridge {
     }
 
     try {
-      const results = await autopic.searchIllustrations(query, {
-        provider: options.provider,
+      const results = await autopic.searchIllustrations(query || 'empty', {
+        providers: options.provider ? [options.provider] : undefined,
         color: options.color,
-        limit: options.limit || 12,
+        limit: options.limit || 16,
       });
 
-      return (results || []).map((r: any) => ({
-        id: r.id || `${r.provider}:${r.slug}`,
-        slug: r.slug,
-        title: r.title || r.slug,
-        provider: r.provider,
-        providerName: r.provider === 'undraw' ? 'unDraw' : r.provider === 'openpeeps' ? 'Open Peeps' : r.provider === 'iradesign' ? 'IRA Design' : r.provider,
-        score: r.score || r.relevanceScore || 85,
-        tags: r.tags || [],
-        svgUrl: r.svgUrl || r.url,
-        license: r.license || 'Approved Free',
-      }));
+      if (!results || !Array.isArray(results) || results.length === 0) {
+        return this.getMockResults(query);
+      }
+
+      return results.map((r: any) => {
+        const pId = r.providerId || r.provider || 'undraw';
+        const pName = r.providerName || (pId === 'undraw' ? 'unDraw' : pId === 'openpeeps' ? 'Open Peeps' : pId === 'iradesign' ? 'IRA Design' : pId);
+        
+        let licenseStr = 'Approved Free';
+        if (typeof r.license === 'string') {
+          licenseStr = r.license;
+        } else if (r.license && typeof r.license === 'object') {
+          licenseStr = r.license.name || r.license.type || 'Approved Free';
+        }
+
+        return {
+          id: r.id || `${pId}:${r.slug}`,
+          slug: r.slug || r.id,
+          title: r.title || r.slug || 'Illustration',
+          provider: pId,
+          providerName: pName,
+          score: r.score || r.relevanceScore || 85,
+          tags: r.tags || [],
+          svgUrl: r.svgUrl || r.thumbnailUrl || r.url,
+          license: licenseStr,
+        };
+      });
     } catch (err) {
       console.error('Autopic search error:', err);
       return this.getMockResults(query);
@@ -116,29 +128,37 @@ export class AutopicBridge {
     const autopic = getAutopic();
     if (autopic && typeof autopic.downloadIllustration === 'function') {
       try {
-        const res = await autopic.downloadIllustration(slug, null, { provider, color });
-        if (res && res.svg) return res.svg;
+        const res = await autopic.downloadIllustration(provider || 'undraw', slug, {
+          primaryColor: color,
+        });
+        if (res && res.content) return res.content;
       } catch (err) {
-        console.error('Error fetching SVG:', err);
+        console.warn('Error in downloadIllustration, trying CDN fallback:', err);
       }
     }
 
-    // Fallback unDraw live direct fetch
-    if (provider === 'undraw') {
-      try {
-        const url = `https://undraw.co/api/illustrations/${slug}`;
-        const resp = await fetch(url);
-        if (resp.ok) {
-          let svg = await resp.text();
-          if (color) {
-            svg = svg.replace(/#6c63ff/gi, color);
+    // Direct CDN fetch for unDraw
+    if (provider === 'undraw' || !provider) {
+      const candidates = [
+        `https://cdn.undraw.co/illustrations/${slug}.svg`,
+        `https://cdn.undraw.co/illustration/${slug}.svg`,
+        `https://42f2671d685f51e10fc6-b97432242619da7e9ee49640879d8cd8.ssl.cf2.rackcdn.com/${slug}.svg`,
+      ];
+      for (const url of candidates) {
+        try {
+          const resp = await fetch(url);
+          if (resp.ok) {
+            let svg = await resp.text();
+            if (color) {
+              svg = svg.replace(/#6c63ff/gi, color);
+            }
+            return svg;
           }
-          return svg;
-        }
-      } catch {}
+        } catch {}
+      }
     }
 
-    // Generic placeholder SVG
+    // Generic fallback SVG with primary color
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 400" width="100%" height="100%">
       <rect width="500" height="400" rx="16" fill="#1e293b"/>
       <circle cx="250" cy="180" r="70" fill="${color || '#3B82F6'}" opacity="0.8"/>
@@ -147,7 +167,6 @@ export class AutopicBridge {
   }
 
   private static getMockResults(query: string): IllustrationCandidate[] {
-    const q = query.toLowerCase();
     return [
       {
         id: 'undraw:empty-wallet_j0kn',
@@ -159,9 +178,18 @@ export class AutopicBridge {
         license: 'unDraw Open License',
       },
       {
+        id: 'undraw:page-not-found_6wni',
+        slug: 'page-not-found_6wni',
+        title: 'Page Not Found (404)',
+        provider: 'undraw',
+        providerName: 'unDraw',
+        score: 98,
+        license: 'unDraw Open License',
+      },
+      {
         id: 'openpeeps:sitting-confused-404',
         slug: 'openpeeps-sitting-confused-404',
-        title: 'Character Confused (Empty State)',
+        title: 'Character Confused',
         provider: 'openpeeps',
         providerName: 'Open Peeps',
         score: 82,

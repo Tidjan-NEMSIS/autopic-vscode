@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Download, Copy, Check, ExternalLink } from 'lucide-react';
+import { Plus, Download, Copy, Check } from 'lucide-react';
 import { IllustrationCandidate } from '../../src/types/messages';
 import { vscode } from '../hooks/useVSCodeApi';
 
@@ -19,7 +19,6 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
   const [svgContent, setSvgContent] = useState<string | null>(candidate.svgContent || null);
 
   useEffect(() => {
-    // Request SVG content if not available
     if (!svgContent) {
       vscode.postMessage({
         command: 'getSvg',
@@ -30,11 +29,10 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
     }
   }, [candidate.slug, candidate.provider, color]);
 
-  // Listen for returned SVG content
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data;
-      if (msg && msg.type === 'svgContent' && msg.slug === candidate.slug) {
+      if (msg && msg.type === 'svgContent' && msg.slug === candidate.slug && typeof msg.svg === 'string') {
         setSvgContent(msg.svg);
       }
     };
@@ -70,7 +68,13 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
     });
   };
 
-  // Replace default unDraw/standard purple with current palette dynamically
+  // Safe string license extraction
+  const licenseText: string =
+    typeof candidate.license === 'string'
+      ? candidate.license
+      : (candidate.license as any)?.name || 'Approved Free';
+
+  // Replace default purple with active color
   const renderedSvg = svgContent
     ? svgContent.replace(/#6c63ff/gi, color)
     : null;
@@ -85,18 +89,18 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
       >
         {renderedSvg ? (
           <div
-            className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-h-full [&>svg]:object-contain"
+            className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-h-full [&>svg]:object-contain pointer-events-none"
             dangerouslySetInnerHTML={{ __html: renderedSvg }}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-vscode-fg/30 animate-pulse">
-            <div className="w-10 h-10 rounded-full border-2 border-current border-t-transparent animate-spin" />
-            <span className="text-[10px] font-mono">Chargement SVG...</span>
+            <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" />
+            <span className="text-[10px] font-mono">Chargement...</span>
           </div>
         )}
 
-        {/* Floating Quick Action Buttons on hover */}
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Quick Actions overlay on hover */}
+        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button
             onClick={handleCopy}
             title="Copier le code SVG"
@@ -113,15 +117,15 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
           </button>
         </div>
 
-        {/* Score pill */}
-        <div className="absolute bottom-2 left-2">
+        {/* Score badge */}
+        <div className="absolute bottom-2 left-2 z-10">
           <span className="text-[10px] font-mono font-bold bg-vscode-sidebarBg/90 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded shadow-sm">
             {candidate.score}%
           </span>
         </div>
       </div>
 
-      {/* Info & Insertion CTA */}
+      {/* Info & CTA */}
       <div className="p-2.5 flex flex-col gap-2 flex-1 justify-between">
         <div>
           <h4
@@ -132,10 +136,10 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
           </h4>
           <div className="flex items-center justify-between text-[10px] text-vscode-fg/50 mt-0.5">
             <span className="font-medium text-indigo-400">
-              {candidate.providerName}
+              {candidate.providerName || candidate.provider}
             </span>
-            <span className="truncate max-w-[110px]" title={candidate.license}>
-              {candidate.license}
+            <span className="truncate max-w-[110px]" title={licenseText}>
+              {licenseText}
             </span>
           </div>
         </div>

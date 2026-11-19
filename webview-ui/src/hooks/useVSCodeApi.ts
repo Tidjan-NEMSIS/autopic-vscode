@@ -4,32 +4,41 @@ declare function acquireVsCodeApi(): {
   setState: (state: any) => void;
 };
 
-class VSCodeAPIWrapper {
-  private readonly vscodeApi: ReturnType<typeof acquireVsCodeApi> | undefined;
-
-  constructor() {
-    if (typeof acquireVsCodeApi === 'function') {
-      this.vscodeApi = acquireVsCodeApi();
-    }
-  }
-
-  public postMessage(message: any) {
-    if (this.vscodeApi) {
-      this.vscodeApi.postMessage(message);
-    } else {
-      console.log('Mock VS Code postMessage:', message);
-    }
-  }
-
-  public getState(): any {
-    return this.vscodeApi ? this.vscodeApi.getState() : null;
-  }
-
-  public setState(state: any) {
-    if (this.vscodeApi) {
-      this.vscodeApi.setState(state);
-    }
+declare global {
+  interface Window {
+    __VSCODE_API_SINGLETON__?: ReturnType<typeof acquireVsCodeApi>;
   }
 }
 
-export const vscode = new VSCodeAPIWrapper();
+function getApi() {
+  if (typeof window !== 'undefined') {
+    if (!window.__VSCODE_API_SINGLETON__ && typeof acquireVsCodeApi === 'function') {
+      try {
+        window.__VSCODE_API_SINGLETON__ = acquireVsCodeApi();
+      } catch (e) {
+        console.warn('VS Code API already acquired or unavailable:', e);
+      }
+    }
+    return window.__VSCODE_API_SINGLETON__;
+  }
+  return undefined;
+}
+
+export const vscode = {
+  postMessage: (message: any) => {
+    const api = getApi();
+    if (api) {
+      api.postMessage(message);
+    } else {
+      console.log('Mock VS Code postMessage:', message);
+    }
+  },
+  getState: () => {
+    const api = getApi();
+    return api ? api.getState() : null;
+  },
+  setState: (state: any) => {
+    const api = getApi();
+    if (api) api.setState(state);
+  },
+};

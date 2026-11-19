@@ -13,6 +13,46 @@ declare global {
   }
 }
 
+// Fallback initial cards to ensure instant rich display
+const INITIAL_CARDS: IllustrationCandidate[] = [
+  {
+    id: 'undraw:empty-wallet_j0kn',
+    slug: 'empty-wallet_j0kn',
+    title: 'Empty Wallet',
+    provider: 'undraw',
+    providerName: 'unDraw',
+    score: 95,
+    license: 'unDraw Open License',
+  },
+  {
+    id: 'undraw:page-not-found_6wni',
+    slug: 'page-not-found_6wni',
+    title: 'Page Not Found (404)',
+    provider: 'undraw',
+    providerName: 'unDraw',
+    score: 98,
+    license: 'unDraw Open License',
+  },
+  {
+    id: 'openpeeps:sitting-confused-404',
+    slug: 'openpeeps-sitting-confused-404',
+    title: 'Character Confused',
+    provider: 'openpeeps',
+    providerName: 'Open Peeps',
+    score: 82,
+    license: 'CC0 1.0 (Public Domain)',
+  },
+  {
+    id: 'iradesign:financial-loss',
+    slug: 'financial-loss',
+    title: 'Financial Loss',
+    provider: 'iradesign',
+    providerName: 'IRA Design',
+    score: 75,
+    license: 'MIT License',
+  },
+];
+
 export default function App() {
   const isSidebar = window.__AUTOPIC_VIEW_MODE__ !== 'studio';
 
@@ -22,9 +62,8 @@ export default function App() {
   const [framework, setFramework] = useState('react');
   const [isDark, setIsDark] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [candidates, setCandidates] = useState<IllustrationCandidate[]>([]);
+  const [candidates, setCandidates] = useState<IllustrationCandidate[]>(INITIAL_CARDS);
 
-  // Initial mount: listen for messages from the extension host
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const msg = event.data;
@@ -41,8 +80,8 @@ export default function App() {
 
         case 'searchResults': {
           setLoading(msg.loading);
-          if (!msg.loading && msg.results) {
-            setCandidates(msg.results);
+          if (!msg.loading && Array.isArray(msg.results)) {
+            setCandidates(msg.results.length > 0 ? msg.results : INITIAL_CARDS);
           }
           break;
         }
@@ -51,10 +90,13 @@ export default function App() {
 
     window.addEventListener('message', handleMessage);
 
+    // Tell host webview is ready
+    vscode.postMessage({ command: 'ready' });
+
     // Initial search
     vscode.postMessage({
       command: 'search',
-      query: 'empty state',
+      query: 'empty',
       provider: '',
       color,
     });
@@ -66,7 +108,7 @@ export default function App() {
     setLoading(true);
     vscode.postMessage({
       command: 'search',
-      query: q || 'dashboard',
+      query: q || 'empty',
       provider: p,
       color: c,
     });
@@ -82,7 +124,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-vscode-bg text-vscode-fg selection:bg-indigo-500/30">
+    <div className="w-full h-full min-h-screen flex flex-col bg-vscode-bg text-vscode-fg selection:bg-indigo-500/30">
       <Header
         query={query}
         onQueryChange={setQuery}
@@ -115,13 +157,13 @@ export default function App() {
           <div
             className={`grid gap-3 ${
               isSidebar
-                ? 'grid-cols-1 sm:grid-cols-2'
-                : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
+                ? 'grid-cols-1'
+                : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
             }`}
           >
             {candidates.map((cand) => (
               <IllustrationCard
-                key={cand.id}
+                key={cand.id || cand.slug}
                 candidate={cand}
                 color={color}
                 isDark={isDark}
@@ -140,12 +182,12 @@ export default function App() {
       </main>
 
       {/* Footer Status Bar */}
-      <footer className="px-3 py-1.5 border-t border-vscode-border bg-vscode-sidebarBg/40 text-[10px] text-vscode-fg/40 flex items-center justify-between">
+      <footer className="px-3 py-1.5 border-t border-vscode-border bg-vscode-sidebarBg/40 text-[10px] text-vscode-fg/40 flex items-center justify-between shrink-0">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-indigo-400" />
-          <span>Autopic Core v2.0 Ready</span>
+          <span>Autopic Studio v0.1.1</span>
         </span>
-        <span>{candidates.length} illustrations disponibles</span>
+        <span>{candidates.length} illustrations prêtes</span>
       </footer>
     </div>
   );
