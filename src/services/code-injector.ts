@@ -98,6 +98,37 @@ export default ${componentName};
         const cursorPosition = editor.selection.active;
         const tagSnippet = `<${componentName} className="w-64 h-64 mx-auto" />\n`;
         edit.insert(document.uri, cursorPosition, tagSnippet);
+      } else if (document.languageId === 'html') {
+        const docDir = path.dirname(document.uri.fsPath);
+        let relPath = path.relative(docDir, svgFilePath).replace(/\\/g, '/');
+        if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+          relPath = './' + relPath;
+        }
+        const cursorPosition = editor.selection.active;
+        const htmlSnippet = `<!-- Autopic Illustration: ${candidate.title} (${candidate.providerName || candidate.provider}) -->\n<img src="${relPath}" alt="${candidate.title}" class="autopic-illustration" style="max-width: 480px; width: 100%; height: auto; display: block; margin: 1.5rem auto;" />\n`;
+        edit.insert(document.uri, cursorPosition, htmlSnippet);
+      } else if (document.languageId === 'markdown') {
+        const docDir = path.dirname(document.uri.fsPath);
+        let relPath = path.relative(docDir, svgFilePath).replace(/\\/g, '/');
+        if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+          relPath = './' + relPath;
+        }
+        const cursorPosition = editor.selection.active;
+        const mdSnippet = `![${candidate.title}](${relPath})\n`;
+        edit.insert(document.uri, cursorPosition, mdSnippet);
+      } else if (['vue', 'svelte'].includes(document.languageId)) {
+        const cursorPosition = editor.selection.active;
+        const snippet = `<img src="/illustrations/${svgFilename}" alt="${candidate.title}" class="w-64 h-64 mx-auto" />\n`;
+        edit.insert(document.uri, cursorPosition, snippet);
+      } else {
+        const docDir = path.dirname(document.uri.fsPath);
+        let relPath = path.relative(docDir, svgFilePath).replace(/\\/g, '/');
+        if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+          relPath = './' + relPath;
+        }
+        const cursorPosition = editor.selection.active;
+        const htmlSnippet = `<img src="${relPath}" alt="${candidate.title}" style="max-width: 480px; width: 100%; height: auto;" />\n`;
+        edit.insert(document.uri, cursorPosition, htmlSnippet);
       }
 
       await vscode.workspace.applyEdit(edit);
