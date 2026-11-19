@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Header } from './components/Header';
 import { PaletteBar } from './components/PaletteBar';
 import { ProviderTabs } from './components/ProviderTabs';
@@ -7,7 +7,7 @@ import { IllustrationCard } from './components/IllustrationCard';
 import { ZoomModal } from './components/ZoomModal';
 import { IllustrationCandidate, ProjectContext } from '../../src/types/messages';
 import { vscode } from './hooks/useVSCodeApi';
-import { Sparkles, Compass, Loader2 } from 'lucide-react';
+import { Sparkles, Compass, Loader2, ChevronDown } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -197,6 +197,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
   const [candidates, setCandidates] = useState<IllustrationCandidate[]>(INITIAL_CARDS);
 
   // Column mode: 'auto' or 1 to 6 columns
@@ -205,7 +206,42 @@ export default function App() {
   // Zoom modal inspection state
   const [zoomedCandidate, setZoomedCandidate] = useState<IllustrationCandidate | null>(null);
 
+  // Refs to avoid stale closures in event listeners & IntersectionObserver
   const mainRef = useRef<HTMLElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
+  const queryRef = useRef('');
+  const providerRef = useRef('');
+  const colorRef = useRef(color);
+
+  loadingRef.current = loading;
+  loadingMoreRef.current = loadingMore;
+  hasMoreRef.current = hasMore;
+  pageRef.current = page;
+  queryRef.current = query;
+  providerRef.current = provider;
+  colorRef.current = color;
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current || loadingMoreRef.current || !hasMoreRef.current) {
+      return;
+    }
+    setLoadingMore(true);
+    loadingMoreRef.current = true;
+    const nextPage = pageRef.current + 1;
+
+    vscode.postMessage({
+      command: 'search',
+      query: queryRef.current,
+      provider: providerRef.current,
+      color: colorRef.current,
+      page: nextPage,
+      append: true,
+    });
+  }, []);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -228,8 +264,20 @@ export default function App() {
         case 'searchResults': {
           setLoading(false);
           setLoadingMore(false);
-          if (typeof msg.hasMore === 'boolean') setHasMore(msg.hasMore);
-          if (typeof msg.page === 'number') setPage(msg.page);
+          loadingRef.current = false;
+          loadingMoreRef.current = false;
+
+          if (typeof msg.hasMore === 'boolean') {
+            setHasMore(msg.hasMore);
+            hasMoreRef.current = msg.hasMore;
+          }
+          if (typeof msg.page === 'number') {
+            setPage(msg.page);
+            pageRef.current = msg.page;
+          }
+          if (typeof msg.total === 'number') {
+            setTotalCount(msg.total);
+          }
 
           if (Array.isArray(msg.results)) {
             if (msg.append) {
@@ -267,10 +315,59 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // IntersectionObserver on bottom sentinel for seamless infinite scrolling
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const scrollContainer = mainRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (
+          entry.isIntersecting &&
+          !loadingRef.current &&
+          !loadingMoreRef.current &&
+          hasMoreRef.current
+        ) {
+          loadMore();
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: '300px', // Pre-fetch 300px before reaching the bottom
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore, candidates.length]);
+
+  // Window scroll fallback listener
+  useEffect(() => {
+    const onWindowScroll = () => {
+      const scrollHeight =
+        document.documentElement.scrollHeight || document.body.scrollHeight;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const clientHeight = window.innerHeight;
+      if (scrollHeight - scrollTop - clientHeight < 400) {
+        if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current) {
+          loadMore();
+        }
+      }
+    };
+    window.addEventListener('scroll', onWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onWindowScroll);
+  }, [loadMore]);
+
   const triggerSearch = (q: string, p = provider, c = color) => {
     setLoading(true);
+    loadingRef.current = true;
     setPage(1);
+    pageRef.current = 1;
     setHasMore(true);
+    hasMoreRef.current = true;
     vscode.postMessage({
       command: 'search',
       query: q,
@@ -281,24 +378,12 @@ export default function App() {
     });
   };
 
-  const loadMore = () => {
-    if (loading || loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    const nextPage = page + 1;
-    vscode.postMessage({
-      command: 'search',
-      query,
-      provider,
-      color,
-      page: nextPage,
-      append: true,
-    });
-  };
-
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 400) {
-      loadMore();
+      if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current) {
+        loadMore();
+      }
     }
   };
 
@@ -325,7 +410,7 @@ export default function App() {
       : 'grid gap-2.5 sm:gap-3';
 
   return (
-    <div className="w-full h-full min-h-screen flex flex-col bg-vscode-bg text-vscode-fg selection:bg-indigo-500/30">
+    <div className="w-full h-full h-screen max-h-screen flex flex-col bg-vscode-bg text-vscode-fg selection:bg-indigo-500/30 overflow-hidden">
       <Header
         query={query}
         onQueryChange={setQuery}
@@ -355,7 +440,7 @@ export default function App() {
       <main
         ref={mainRef}
         onScroll={handleScroll}
-        className="flex-1 p-2.5 sm:p-3 overflow-y-auto"
+        className="flex-1 min-h-0 p-2.5 sm:p-3 overflow-y-auto"
       >
         {loading ? (
           <div className="py-24 flex flex-col items-center justify-center gap-3 text-vscode-fg/40">
@@ -377,18 +462,34 @@ export default function App() {
               ))}
             </div>
 
-            {/* Bottom Infinite Scroll Loader */}
+            {/* Bottom Sentinel for IntersectionObserver */}
+            <div ref={sentinelRef} className="h-6 w-full pointer-events-none" />
+
+            {/* Infinite Scroll Loading Spinner */}
             {loadingMore && (
-              <div className="py-8 flex flex-col items-center justify-center gap-2 text-vscode-fg/50">
+              <div className="py-8 flex flex-col items-center justify-center gap-2 text-vscode-fg/60">
                 <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
-                <span className="text-[11px] font-mono">
-                  Chargement d'illustrations supplémentaires...
+                <span className="text-xs font-mono font-medium">
+                  Chargement d'illustrations supplémentaires... (page {page + 1})
                 </span>
               </div>
             )}
 
-            {/* End of illustrations notification */}
-            {!hasMore && candidates.length > 10 && (
+            {/* Manual Load More button fallback */}
+            {hasMore && !loadingMore && candidates.length > 0 && (
+              <div className="py-6 flex justify-center">
+                <button
+                  onClick={loadMore}
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-400 hover:text-white bg-vscode-inputBg hover:bg-indigo-600 border border-vscode-border rounded-md shadow-sm transition-all active:scale-95"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                  <span>Charger plus d'illustrations... (page {page + 1})</span>
+                </button>
+              </div>
+            )}
+
+            {/* End of collection notification */}
+            {!hasMore && candidates.length > 0 && (
               <div className="py-8 text-center text-[11px] text-vscode-fg/40 font-mono flex items-center justify-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
                 <span>
@@ -412,10 +513,11 @@ export default function App() {
       <footer className="px-3 py-1.5 border-t border-vscode-border bg-vscode-sidebarBg/40 text-[10px] text-vscode-fg/40 flex items-center justify-between shrink-0">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-indigo-400" />
-          <span>Autopic Studio v0.1.3</span>
+          <span>Autopic Studio v0.1.4</span>
         </span>
         <span className="flex items-center gap-2 font-mono">
-          <span>{candidates.length} illustrations</span>
+          <span>{candidates.length} illustrations affichées</span>
+          {totalCount && <span>/ {totalCount}</span>}
           <span>•</span>
           <span className="text-indigo-400 font-semibold">
             {columns === 'auto' ? 'Auto (≤6)' : `${columns} colonnes`}
@@ -423,7 +525,7 @@ export default function App() {
           {hasMore && (
             <>
               <span>•</span>
-              <span className="text-emerald-400 font-medium">Défilement infini actif</span>
+              <span className="text-emerald-400 font-medium">Page {page}</span>
             </>
           )}
         </span>
