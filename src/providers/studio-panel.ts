@@ -89,7 +89,7 @@ export class AutopicStudioPanel {
         const results = await AutopicBridge.search(message.query, {
           provider: message.provider,
           color: message.color,
-          limit: 24, // Studio view has more space
+          limit: 36, // Studio view has more space
         });
 
         this._panel.webview.postMessage({

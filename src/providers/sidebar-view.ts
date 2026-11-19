@@ -66,6 +66,7 @@ export class AutopicSidebarViewProvider implements vscode.WebviewViewProvider {
         const results = await AutopicBridge.search(message.query, {
           provider: message.provider,
           color: message.color,
+          limit: 36,
         });
 
         this._view.webview.postMessage({
