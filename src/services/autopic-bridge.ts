@@ -17,6 +17,8 @@ function getAutopic() {
 }
 
 export class AutopicBridge {
+  private static cachedBuildId: string | null = null;
+
   public static getProjectRoot(): string {
     const folders = vscode.workspace.workspaceFolders;
     return folders && folders.length > 0 ? folders[0].uri.fsPath : process.cwd();
@@ -65,7 +67,9 @@ export class AutopicBridge {
     }
 
     const activeColorTheme = vscode.window.activeColorTheme;
-    isDark = activeColorTheme.kind === vscode.ColorThemeKind.Dark || activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+    isDark =
+      activeColorTheme.kind === vscode.ColorThemeKind.Dark ||
+      activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
 
     return {
       framework,
@@ -75,63 +79,232 @@ export class AutopicBridge {
     };
   }
 
-  public static async search(
-    query: string,
-    options: { provider?: string; color?: string; limit?: number } = {}
-  ): Promise<IllustrationCandidate[]> {
-    const autopic = getAutopic();
-    if (!autopic || typeof autopic.searchIllustrations !== 'function') {
-      return this.getMockResults(query);
-    }
-
+  public static async getUndrawBuildId(): Promise<string> {
+    if (this.cachedBuildId) return this.cachedBuildId;
     try {
-      const results = await autopic.searchIllustrations(query || 'empty', {
-        providers: options.provider ? [options.provider] : undefined,
-        color: options.color,
-        limit: options.limit || 36,
-      });
-
-      if (!results || !Array.isArray(results) || results.length === 0) {
-        return this.getMockResults(query);
+      const resp = await fetch('https://undraw.co/illustrations');
+      if (resp.ok) {
+        const text = await resp.text();
+        const match = text.match(/"buildId":"([^"]+)"/);
+        if (match && match[1]) {
+          this.cachedBuildId = match[1];
+          return match[1];
+        }
       }
+    } catch {}
+    return 'rgL-_q8RRpwRSWfQrSDDI';
+  }
 
-      return results.map((r: any) => {
-        const pId = r.providerId || r.provider || 'undraw';
-        const pName = r.providerName || (pId === 'undraw' ? 'unDraw' : pId === 'openpeeps' ? 'Open Peeps' : pId === 'iradesign' ? 'IRA Design' : pId);
-        
-        let licenseStr = 'Approved Free';
-        if (typeof r.license === 'string') {
-          licenseStr = r.license;
-        } else if (r.license && typeof r.license === 'object') {
-          licenseStr = r.license.name || r.license.type || 'Approved Free';
+  public static async searchWithPagination(
+    query: string,
+    options: { provider?: string; color?: string; page?: number; limit?: number } = {}
+  ): Promise<{ results: IllustrationCandidate[]; hasMore: boolean; page: number; total?: number }> {
+    const page = options.page !== undefined ? options.page : 1;
+    const trimmed = (query || '').trim();
+
+    // Mode 1: Empty or browse mode -> Complete collection via SSG pages (1800+ illustrations)
+    if (!trimmed || trimmed.toLowerCase() === 'all' || trimmed.toLowerCase() === 'browse') {
+      const extras: IllustrationCandidate[] = [];
+      const autopic = getAutopic();
+
+      // On first page, include curated OpenPeeps & IraDesign
+      if (page <= 1) {
+        if (autopic && (!options.provider || options.provider === 'openpeeps')) {
+          try {
+            const opProvider = new autopic.OpenPeepsProvider();
+            const opList = await opProvider.search({ limit: 10 });
+            extras.push(
+              ...opList.map((r: any) => ({
+                id: r.id || `openpeeps:${r.slug}`,
+                slug: r.slug,
+                title: r.title,
+                provider: 'openpeeps' as const,
+                providerName: 'Open Peeps',
+                score: 92,
+                license: 'CC0 1.0 (Public Domain)',
+              }))
+            );
+          } catch {}
         }
 
+        if (autopic && (!options.provider || options.provider === 'iradesign')) {
+          try {
+            const iraProvider = new autopic.IraDesignProvider();
+            const iraList = await iraProvider.search({ limit: 10 });
+            extras.push(
+              ...iraList.map((r: any) => ({
+                id: r.id || `iradesign:${r.slug}`,
+                slug: r.slug,
+                title: r.title,
+                provider: 'iradesign' as const,
+                providerName: 'IRA Design',
+                score: 90,
+                license: 'MIT License',
+              }))
+            );
+          } catch {}
+        }
+      }
+
+      if (options.provider === 'openpeeps' || options.provider === 'iradesign') {
+        const filtered = extras.filter((x) => x.provider === options.provider);
         return {
-          id: r.id || `${pId}:${r.slug}`,
-          slug: r.slug || r.id,
-          title: r.title || r.slug || 'Illustration',
-          provider: pId,
-          providerName: pName,
-          score: r.score || r.relevanceScore || 85,
-          tags: r.tags || [],
-          svgUrl: r.svgUrl || r.thumbnailUrl || r.url,
-          license: licenseStr,
+          results: filtered,
+          hasMore: false,
+          page,
+          total: filtered.length,
         };
+      }
+
+      const browsePage = Math.max(1, page);
+      try {
+        const buildId = await this.getUndrawBuildId();
+        const dataUrl = `https://undraw.co/_next/data/${buildId}/illustrations${
+          browsePage === 1 ? '' : '/' + browsePage
+        }.json`;
+        const resp = await fetch(dataUrl);
+        if (resp.ok) {
+          const json = await resp.json();
+          const rawItems = json.pageProps?.illustrations || [];
+          const totalPages = json.pageProps?.totalPages || 45;
+          const undrawItems: IllustrationCandidate[] = rawItems.map((item: any) => ({
+            id: `undraw:${item.newSlug || item.title.toLowerCase().replace(/\s+/g, '-')}`,
+            slug: item.newSlug || item.title.toLowerCase().replace(/\s+/g, '-'),
+            title: item.title,
+            provider: 'undraw' as const,
+            providerName: 'unDraw',
+            score: 95,
+            license: 'unDraw Open License',
+          }));
+
+          const combined = browsePage === 1 ? [...extras, ...undrawItems] : undrawItems;
+          return {
+            results: combined,
+            hasMore: browsePage < totalPages,
+            page: browsePage,
+            total: totalPages * 40,
+          };
+        }
+      } catch (err) {
+        console.warn('Error fetching unDraw browse page:', err);
+      }
+
+      return {
+        results: this.getMockResults(''),
+        hasMore: false,
+        page,
+      };
+    }
+
+    // Mode 2: Keyword search with query (ex: "wallet", "empty", "login", "team")
+    try {
+      const searchPage = Math.max(0, page - 1);
+      const url = `https://undraw.co/api/search?q=${encodeURIComponent(trimmed)}&page=${searchPage}`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 tidjan-autopic',
+          'Accept': 'application/json',
+          'Referer': 'https://undraw.co/illustrations',
+        },
       });
+
+      let undrawResults: IllustrationCandidate[] = [];
+      let hasMore = false;
+      let total = 0;
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const rawItems = Array.isArray(data.results) ? data.results : [];
+        hasMore = !!data.hasMore;
+        total = data.total || rawItems.length;
+
+        undrawResults = rawItems.map((item: any) => ({
+          id: `undraw:${item.newSlug || item.title.toLowerCase().replace(/\s+/g, '-')}`,
+          slug: item.newSlug || item.title.toLowerCase().replace(/\s+/g, '-'),
+          title: item.title,
+          provider: 'undraw' as const,
+          providerName: 'unDraw',
+          score: 92,
+          license: 'unDraw Open License',
+        }));
+      }
+
+      let extras: IllustrationCandidate[] = [];
+      if (searchPage === 0) {
+        const autopic = getAutopic();
+        if (autopic && typeof autopic.searchIllustrations === 'function') {
+          try {
+            const others = await autopic.searchIllustrations(trimmed, {
+              providers: ['openpeeps', 'iradesign'],
+              limit: 6,
+            });
+            extras = (others || []).map((r: any) => ({
+              id: r.id || `${r.providerId}:${r.slug}`,
+              slug: r.slug,
+              title: r.title,
+              provider: r.providerId || r.provider,
+              providerName:
+                r.providerName || (r.providerId === 'openpeeps' ? 'Open Peeps' : 'IRA Design'),
+              score: r.score || 85,
+              license:
+                typeof r.license === 'string' ? r.license : r.license?.name || 'Approved Free',
+            }));
+          } catch {}
+        }
+      }
+
+      const combined = [...extras, ...undrawResults].filter((item) => {
+        if (!options.provider) return true;
+        return item.provider === options.provider;
+      });
+
+      return {
+        results: combined,
+        hasMore: hasMore && undrawResults.length > 0,
+        page,
+        total,
+      };
     } catch (err) {
-      console.error('Autopic search error:', err);
-      return this.getMockResults(query);
+      console.error('Search error in autopic-bridge:', err);
+      return {
+        results: this.getMockResults(trimmed),
+        hasMore: false,
+        page,
+      };
     }
   }
 
-  public static async getSvgContent(slug: string, provider: string, color?: string): Promise<string> {
+  public static async search(
+    query: string,
+    options: { provider?: string; color?: string; limit?: number; page?: number } = {}
+  ): Promise<IllustrationCandidate[]> {
+    const res = await this.searchWithPagination(query, options);
+    return res.results;
+  }
+
+  public static async getSvgContent(
+    slug: string,
+    provider: string,
+    color?: string
+  ): Promise<string> {
     const autopic = getAutopic();
     if (autopic && typeof autopic.downloadIllustration === 'function') {
       try {
         const res = await autopic.downloadIllustration(provider || 'undraw', slug, {
-          primaryColor: color,
+          force: true, // Bypass cached colored files from disk
+          primaryColor: undefined, // Keep raw #6c63ff intact for instant client recoloring
         });
-        if (res && res.content) return res.content;
+        if (res && res.content) {
+          let svg = res.content;
+          if (color) {
+            svg = svg
+              .replace(/#6c63ff/gi, color)
+              .replace(/#6C63FF/gi, color)
+              .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
+              .replace(/#6366F1/gi, color);
+          }
+          return svg;
+        }
       } catch (err) {
         console.warn('Error in downloadIllustration, trying CDN fallback:', err);
       }
@@ -150,7 +323,11 @@ export class AutopicBridge {
           if (resp.ok) {
             let svg = await resp.text();
             if (color) {
-              svg = svg.replace(/#6c63ff/gi, color);
+              svg = svg
+                .replace(/#6c63ff/gi, color)
+                .replace(/#6C63FF/gi, color)
+                .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
+                .replace(/#6366F1/gi, color);
             }
             return svg;
           }
@@ -161,12 +338,12 @@ export class AutopicBridge {
     // Generic fallback SVG with primary color
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 400" width="100%" height="100%">
       <rect width="500" height="400" rx="16" fill="#1e293b"/>
-      <circle cx="250" cy="180" r="70" fill="${color || '#3B82F6'}" opacity="0.8"/>
+      <circle cx="250" cy="180" r="70" fill="${color || '#6c63ff'}" opacity="0.8"/>
       <text x="250" y="320" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="18">${slug}</text>
     </svg>`;
   }
 
-  private static getMockResults(query: string): IllustrationCandidate[] {
+  public static getMockResults(query: string): IllustrationCandidate[] {
     return [
       {
         id: 'undraw:empty-wallet_j0kn',

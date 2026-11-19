@@ -79,23 +79,30 @@ export class AutopicStudioPanel {
         break;
 
       case 'search': {
-        this._panel.webview.postMessage({
-          type: 'searchResults',
-          query: message.query,
-          results: [],
-          loading: true,
-        });
+        if (!message.append) {
+          this._panel.webview.postMessage({
+            type: 'searchResults',
+            query: message.query,
+            results: [],
+            loading: true,
+            append: false,
+          });
+        }
 
-        const results = await AutopicBridge.search(message.query, {
+        const data = await AutopicBridge.searchWithPagination(message.query, {
           provider: message.provider,
           color: message.color,
-          limit: 36, // Studio view has more space
+          page: message.page !== undefined ? message.page : (message.query ? 0 : 1),
         });
 
         this._panel.webview.postMessage({
           type: 'searchResults',
           query: message.query,
-          results,
+          results: data.results,
+          page: data.page,
+          hasMore: data.hasMore,
+          total: data.total,
+          append: !!message.append,
           loading: false,
         });
         break;

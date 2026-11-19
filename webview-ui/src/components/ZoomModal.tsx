@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw, Plus, Copy, Download, Check, ShieldCheck, Sparkles } from 'lucide-react';
 import { IllustrationCandidate } from '../../src/types/messages';
 import { vscode } from '../hooks/useVSCodeApi';
@@ -155,7 +155,15 @@ export const ZoomModal: React.FC<ZoomModalProps> = ({
     });
   };
 
-  const renderedSvg = svgContent ? svgContent.replace(/#6c63ff/gi, color) : null;
+  const renderedSvg = useMemo(() => {
+    if (!svgContent) return null;
+    return svgContent
+      .replace(/#6c63ff/gi, color)
+      .replace(/#6C63FF/gi, color)
+      .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
+      .replace(/#6366F1/gi, color)
+      .replace(/#8B5CF6/gi, color);
+  }, [svgContent, color]);
 
   const licenseText: string =
     typeof candidate.license === 'string'

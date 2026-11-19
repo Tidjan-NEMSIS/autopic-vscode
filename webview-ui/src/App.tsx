@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { PaletteBar } from './components/PaletteBar';
 import { ProviderTabs } from './components/ProviderTabs';
@@ -7,7 +7,7 @@ import { IllustrationCard } from './components/IllustrationCard';
 import { ZoomModal } from './components/ZoomModal';
 import { IllustrationCandidate, ProjectContext } from '../../src/types/messages';
 import { vscode } from './hooks/useVSCodeApi';
-import { Sparkles, Compass } from 'lucide-react';
+import { Sparkles, Compass, Loader2 } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -15,7 +15,7 @@ declare global {
   }
 }
 
-// 18 verified initial cards across unDraw, Open Peeps, and IRA Design
+// Initial fallback cards
 const INITIAL_CARDS: IllustrationCandidate[] = [
   {
     id: 'undraw:empty-wallet_j0kn',
@@ -186,10 +186,17 @@ export default function App() {
 
   const [query, setQuery] = useState('');
   const [provider, setProvider] = useState('');
+  // Palette du Projet (détectée) vs Active Color (choix utilisateur)
+  const [projectColor, setProjectColor] = useState('#3B82F6');
   const [color, setColor] = useState('#3B82F6');
   const [framework, setFramework] = useState('react');
   const [isDark, setIsDark] = useState(true);
+
+  // Pagination & Infinite Scrolling state
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [candidates, setCandidates] = useState<IllustrationCandidate[]>(INITIAL_CARDS);
 
   // Column mode: 'auto' or 1 to 6 columns
@@ -197,6 +204,8 @@ export default function App() {
 
   // Zoom modal inspection state
   const [zoomedCandidate, setZoomedCandidate] = useState<IllustrationCandidate | null>(null);
+
+  const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -206,16 +215,34 @@ export default function App() {
       switch (msg.type) {
         case 'projectContext': {
           const ctx: ProjectContext = msg.context;
-          if (ctx.palette) setColor(ctx.palette);
+          if (ctx.palette) {
+            setProjectColor(ctx.palette);
+            // Default active color to project color if not customized yet
+            setColor((prev) => (prev === '#3B82F6' ? ctx.palette : prev));
+          }
           if (ctx.framework) setFramework(ctx.framework);
           setIsDark(ctx.isDark);
           break;
         }
 
         case 'searchResults': {
-          setLoading(msg.loading);
-          if (!msg.loading && Array.isArray(msg.results)) {
-            setCandidates(msg.results.length > 0 ? msg.results : INITIAL_CARDS);
+          setLoading(false);
+          setLoadingMore(false);
+          if (typeof msg.hasMore === 'boolean') setHasMore(msg.hasMore);
+          if (typeof msg.page === 'number') setPage(msg.page);
+
+          if (Array.isArray(msg.results)) {
+            if (msg.append) {
+              setCandidates((prev) => {
+                const existing = new Set(prev.map((c) => c.slug || c.id));
+                const fresh = msg.results.filter(
+                  (c: IllustrationCandidate) => !existing.has(c.slug || c.id)
+                );
+                return [...prev, ...fresh];
+              });
+            } else {
+              setCandidates(msg.results.length > 0 ? msg.results : INITIAL_CARDS);
+            }
           }
           break;
         }
@@ -227,12 +254,14 @@ export default function App() {
     // Tell host webview is ready
     vscode.postMessage({ command: 'ready' });
 
-    // Initial search
+    // Initial search: load first page of illustrations
     vscode.postMessage({
       command: 'search',
-      query: 'empty',
+      query: '',
       provider: '',
       color,
+      page: 1,
+      append: false,
     });
 
     return () => window.removeEventListener('message', handleMessage);
@@ -240,12 +269,37 @@ export default function App() {
 
   const triggerSearch = (q: string, p = provider, c = color) => {
     setLoading(true);
+    setPage(1);
+    setHasMore(true);
     vscode.postMessage({
       command: 'search',
-      query: q || 'empty',
+      query: q,
       provider: p,
       color: c,
+      page: 1,
+      append: false,
     });
+  };
+
+  const loadMore = () => {
+    if (loading || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    vscode.postMessage({
+      command: 'search',
+      query,
+      provider,
+      color,
+      page: nextPage,
+      append: true,
+    });
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 400) {
+      loadMore();
+    }
   };
 
   const handleProviderChange = (newProvider: string) => {
@@ -281,7 +335,8 @@ export default function App() {
       />
 
       <PaletteBar
-        color={color}
+        projectColor={projectColor}
+        activeColor={color}
         onColorChange={handleColorChange}
         framework={framework}
         isDark={isDark}
@@ -296,28 +351,54 @@ export default function App() {
         totalCount={candidates.length}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-2.5 sm:p-3 overflow-y-auto">
+      {/* Main Content Area with Infinite Scrolling */}
+      <main
+        ref={mainRef}
+        onScroll={handleScroll}
+        className="flex-1 p-2.5 sm:p-3 overflow-y-auto"
+      >
         {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3 text-vscode-fg/40">
+          <div className="py-24 flex flex-col items-center justify-center gap-3 text-vscode-fg/40">
             <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
             <p className="text-xs font-mono">Recherche multi-fournisseurs...</p>
           </div>
         ) : candidates.length > 0 ? (
-          <div className={gridClassName} style={gridStyle}>
-            {candidates.map((cand) => (
-              <IllustrationCard
-                key={cand.id || cand.slug}
-                candidate={cand}
-                color={color}
-                isDark={isDark}
-                onOpenZoom={(c) => setZoomedCandidate(c)}
-                isCompact={columns === 5 || columns === 6}
-              />
-            ))}
-          </div>
+          <>
+            <div className={gridClassName} style={gridStyle}>
+              {candidates.map((cand) => (
+                <IllustrationCard
+                  key={cand.id || cand.slug}
+                  candidate={cand}
+                  color={color}
+                  isDark={isDark}
+                  onOpenZoom={(c) => setZoomedCandidate(c)}
+                  isCompact={columns === 5 || columns === 6}
+                />
+              ))}
+            </div>
+
+            {/* Bottom Infinite Scroll Loader */}
+            {loadingMore && (
+              <div className="py-8 flex flex-col items-center justify-center gap-2 text-vscode-fg/50">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
+                <span className="text-[11px] font-mono">
+                  Chargement d'illustrations supplémentaires...
+                </span>
+              </div>
+            )}
+
+            {/* End of illustrations notification */}
+            {!hasMore && candidates.length > 10 && (
+              <div className="py-8 text-center text-[11px] text-vscode-fg/40 font-mono flex items-center justify-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span>
+                  Toutes les illustrations disponibles ont été chargées ({candidates.length} au total).
+                </span>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="py-20 flex flex-col items-center justify-center gap-2 text-vscode-fg/40 text-center px-4">
+          <div className="py-24 flex flex-col items-center justify-center gap-2 text-vscode-fg/40 text-center px-4">
             <Compass className="w-10 h-10 stroke-[1.5] text-vscode-fg/20" />
             <p className="text-xs font-medium">Aucune illustration trouvée pour "{query}".</p>
             <p className="text-[11px] text-vscode-fg/30">
@@ -331,7 +412,7 @@ export default function App() {
       <footer className="px-3 py-1.5 border-t border-vscode-border bg-vscode-sidebarBg/40 text-[10px] text-vscode-fg/40 flex items-center justify-between shrink-0">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-indigo-400" />
-          <span>Autopic Studio v0.1.2</span>
+          <span>Autopic Studio v0.1.3</span>
         </span>
         <span className="flex items-center gap-2 font-mono">
           <span>{candidates.length} illustrations</span>
@@ -339,6 +420,12 @@ export default function App() {
           <span className="text-indigo-400 font-semibold">
             {columns === 'auto' ? 'Auto (≤6)' : `${columns} colonnes`}
           </span>
+          {hasMore && (
+            <>
+              <span>•</span>
+              <span className="text-emerald-400 font-medium">Défilement infini actif</span>
+            </>
+          )}
         </span>
       </footer>
 

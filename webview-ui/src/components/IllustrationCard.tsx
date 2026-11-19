@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Download, Copy, Check, ZoomIn } from 'lucide-react';
 import { IllustrationCandidate } from '../../src/types/messages';
 import { vscode } from '../hooks/useVSCodeApi';
@@ -20,18 +20,23 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [inserting, setInserting] = useState(false);
-  const [svgContent, setSvgContent] = useState<string | null>(candidate.svgContent || null);
+  const [rawSvg, setRawSvg] = useState<string | null>(candidate.svgContent || null);
 
   useEffect(() => {
-    if (!svgContent) {
+    if (!rawSvg) {
       vscode.postMessage({
         command: 'getSvg',
         slug: candidate.slug,
         provider: candidate.provider,
-        color,
       });
     }
-  }, [candidate.slug, candidate.provider, color]);
+  }, [candidate.slug, candidate.provider]);
+
+  useEffect(() => {
+    if (candidate.svgContent) {
+      setRawSvg(candidate.svgContent);
+    }
+  }, [candidate.svgContent]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -42,7 +47,7 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
         msg.slug === candidate.slug &&
         typeof msg.svg === 'string'
       ) {
-        setSvgContent(msg.svg);
+        setRawSvg(msg.svg);
       }
     };
     window.addEventListener('message', handler);
@@ -86,8 +91,16 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
       ? candidate.license
       : (candidate.license as any)?.name || 'Approved Free';
 
-  // Replace default purple with active color
-  const renderedSvg = svgContent ? svgContent.replace(/#6c63ff/gi, color) : null;
+  // Instantaneous zero-latency recoloring across unDraw, Open Peeps & IRA Design
+  const renderedSvg = useMemo(() => {
+    if (!rawSvg) return null;
+    return rawSvg
+      .replace(/#6c63ff/gi, color)
+      .replace(/#6C63FF/gi, color)
+      .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
+      .replace(/#6366F1/gi, color)
+      .replace(/#8B5CF6/gi, color);
+  }, [rawSvg, color]);
 
   return (
     <div className="group flex flex-col bg-vscode-inputBg/40 hover:bg-vscode-inputBg/80 border border-vscode-border rounded-lg overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-indigo-500/60">
@@ -136,7 +149,11 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
             title="Copier le code SVG"
             className="p-1 bg-vscode-sidebarBg/90 hover:bg-vscode-sidebarBg text-vscode-fg border border-vscode-border rounded shadow-sm transition-transform active:scale-90"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
           </button>
           <button
             onClick={handleDownload}

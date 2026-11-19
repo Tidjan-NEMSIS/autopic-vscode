@@ -19,10 +19,22 @@ export interface ProjectContext {
 }
 
 export type WebviewToHostMessage =
-  | { command: 'search'; query: string; provider?: string; color?: string }
+  | {
+      command: 'search';
+      query: string;
+      provider?: string;
+      color?: string;
+      page?: number;
+      append?: boolean;
+    }
   | { command: 'smart'; concept: string }
   | { command: 'getSvg'; slug: string; provider: string; color?: string }
-  | { command: 'insertAtCursor'; candidate: IllustrationCandidate; color: string; framework?: string }
+  | {
+      command: 'insertAtCursor';
+      candidate: IllustrationCandidate;
+      color: string;
+      framework?: string;
+    }
   | { command: 'downloadSvg'; candidate: IllustrationCandidate; color: string }
   | { command: 'copySvg'; candidate: IllustrationCandidate; color: string }
   | { command: 'refreshProject' }
@@ -30,6 +42,15 @@ export type WebviewToHostMessage =
 
 export type HostToWebviewMessage =
   | { type: 'projectContext'; context: ProjectContext }
-  | { type: 'searchResults'; query: string; results: IllustrationCandidate[]; loading: boolean }
+  | {
+      type: 'searchResults';
+      query: string;
+      results: IllustrationCandidate[];
+      loading: boolean;
+      page?: number;
+      hasMore?: boolean;
+      append?: boolean;
+      total?: number;
+    }
   | { type: 'svgContent'; slug: string; svg: string }
   | { type: 'status'; message: string; level: 'info' | 'success' | 'error' };
