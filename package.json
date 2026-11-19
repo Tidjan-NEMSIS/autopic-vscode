@@ -2,7 +2,7 @@
   "name": "autopic-vscode",
   "displayName": "Autopic Studio — Smart Illustrations",
   "description": "Interactive illustration studio for VS Code, Cursor, Windsurf & Antigravity. Auto-palette detection, multi-provider search & 1-click cursor insertion.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "tidjan",
   "repository": {
     "type": "git",

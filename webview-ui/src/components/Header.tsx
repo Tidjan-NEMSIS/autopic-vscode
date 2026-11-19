@@ -28,8 +28,12 @@ export const Header: React.FC<HeaderProps> = ({
     <div className="p-3 border-b border-vscode-border bg-vscode-sidebarBg/50 backdrop-blur-sm sticky top-0 z-20 space-y-2.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm">
-            A
+          <div className="w-5 h-5 flex items-center justify-center text-indigo-400 shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20">
+              <path fill="#38bdf8" d="M 6,8 C 4.9,8 4,8.9 4,10 L 4,12 C 4.6,12 5.5,12.4 5.9,13 C 6.7,14 6.7,15 5.9,16 C 5.5,16.6 4.6,17 4,17 L 4,19 C 4,20.1 4.9,21 6,21 L 13,21 C 14.1,21 15,20.1 15,19 L 15,17 C 15.6,17 16.5,17.4 17.1,16.8 C 18.2,15.7 18.2,14.3 17.1,13.2 C 16.5,12.6 15.6,13 15,13 L 15,10 C 15,8.9 14.1,8 13,8 L 11.5,8 C 11.5,7.4 11.9,6.5 11.3,5.9 C 10.2,4.8 8.8,4.8 7.7,5.9 C 7.1,6.5 7.5,7.4 7.5,8 Z" />
+              <path fill="#facc15" d="M 18,1.5 C 18,3.8 19.7,5.5 22,5.5 C 19.7,5.5 18,7.2 18,9.5 C 18,7.2 16.3,5.5 14,5.5 C 16.3,5.5 18,3.8 18,1.5 Z" />
+              <path fill="#facc15" d="M 21.5,9.5 C 21.5,11 22.5,12 24,12 C 22.5,12 21.5,13 21.5,14.5 C 21.5,13 20.5,12 19,12 C 20.5,12 21.5,11 21.5,9.5 Z" />
+            </svg>
           </div>
           <span className="font-bold tracking-tight text-vscode-fg text-sm flex items-center gap-1.5">
             Autopic Studio
