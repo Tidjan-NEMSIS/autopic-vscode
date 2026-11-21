@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { getWebviewContent } from './webview-html';
 import { WebviewToHostMessage } from '../types/messages';
 import { AutopicBridge } from '../services/autopic-bridge';
-import { CodeInjector } from '../services/code-injector';
+import { handleWebviewMessage } from '../services/message-router';
 
 export class AutopicStudioPanel {
   public static currentPanel: AutopicStudioPanel | undefined;
@@ -55,7 +55,11 @@ export class AutopicStudioPanel {
 
     this._panel.webview.onDidReceiveMessage(
       async (data: WebviewToHostMessage) => {
-        await this.handleMessage(data);
+        await handleWebviewMessage(
+          data,
+          (message) => this._panel.webview.postMessage(message),
+          () => this.sendProjectContext()
+        );
       },
       null,
       this._disposables
@@ -70,85 +74,6 @@ export class AutopicStudioPanel {
       type: 'projectContext',
       context,
     });
-  }
-
-  private async handleMessage(message: WebviewToHostMessage) {
-    switch (message.command) {
-      case 'refreshProject':
-        await this.sendProjectContext();
-        break;
-
-      case 'search': {
-        if (!message.append) {
-          this._panel.webview.postMessage({
-            type: 'searchResults',
-            query: message.query,
-            results: [],
-            loading: true,
-            append: false,
-          });
-        }
-
-        const data = await AutopicBridge.searchWithPagination(message.query, {
-          provider: message.provider,
-          color: message.color,
-          page: message.page !== undefined ? message.page : (message.query ? 0 : 1),
-        });
-
-        this._panel.webview.postMessage({
-          type: 'searchResults',
-          query: message.query,
-          results: data.results,
-          page: data.page,
-          hasMore: data.hasMore,
-          total: data.total,
-          append: !!message.append,
-          loading: false,
-        });
-        break;
-      }
-
-      case 'getSvg': {
-        const svg = await AutopicBridge.getSvgContent(message.slug, message.provider, message.color);
-        this._panel.webview.postMessage({
-          type: 'svgContent',
-          slug: message.slug,
-          svg,
-        });
-        break;
-      }
-
-      case 'insertAtCursor': {
-        await CodeInjector.insertIllustrationAtCursor({
-          candidate: message.candidate,
-          color: message.color,
-          framework: message.framework,
-        });
-        break;
-      }
-
-      case 'downloadSvg': {
-        const root = AutopicBridge.getProjectRoot();
-        const svg = await AutopicBridge.getSvgContent(message.candidate.slug, message.candidate.provider, message.color);
-        const targetUri = await vscode.window.showSaveDialog({
-          defaultUri: vscode.Uri.file(`${root}/public/illustrations/${message.candidate.slug}.svg`),
-          filters: { 'Scalable Vector Graphics (*.svg)': ['svg'] },
-        });
-        if (targetUri) {
-          const fs = require('fs');
-          fs.writeFileSync(targetUri.fsPath, svg, 'utf8');
-          vscode.window.showInformationMessage(`✔ SVG enregistré : ${targetUri.fsPath}`);
-        }
-        break;
-      }
-
-      case 'copySvg': {
-        const svg = await AutopicBridge.getSvgContent(message.candidate.slug, message.candidate.provider, message.color);
-        await vscode.env.clipboard.writeText(svg);
-        vscode.window.showInformationMessage('✔ Code SVG copié dans le presse-papier !');
-        break;
-      }
-    }
   }
 
   public dispose() {

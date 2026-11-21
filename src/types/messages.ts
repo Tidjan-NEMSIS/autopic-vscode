@@ -19,6 +19,7 @@ export interface ProjectContext {
 }
 
 export type WebviewToHostMessage =
+  | { command: 'ready' }
   | {
       command: 'search';
       query: string;
@@ -28,7 +29,7 @@ export type WebviewToHostMessage =
       append?: boolean;
     }
   | { command: 'smart'; concept: string }
-  | { command: 'getSvg'; slug: string; provider: string; color?: string }
+  | { command: 'getSvg'; slug: string; provider: string; color?: string; isDark?: boolean }
   | {
       command: 'insertAtCursor';
       candidate: IllustrationCandidate;
@@ -51,6 +52,7 @@ export type HostToWebviewMessage =
       hasMore?: boolean;
       append?: boolean;
       total?: number;
+      fallback?: boolean;
     }
-  | { type: 'svgContent'; slug: string; svg: string }
+  | { type: 'svgContent'; slug: string; svg: string; provider?: string }
   | { type: 'status'; message: string; level: 'info' | 'success' | 'error' };

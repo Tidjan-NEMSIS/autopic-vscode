@@ -8,3 +8,7 @@ esbuild.config.js
 *.tsbuildinfo
 .git/**
 .gitignore
+.antigravity_memory.md
+public/**
+package-lock.json
+*.vsix

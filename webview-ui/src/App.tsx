@@ -7,11 +7,13 @@ import { IllustrationCard } from './components/IllustrationCard';
 import { ZoomModal } from './components/ZoomModal';
 import { IllustrationCandidate, ProjectContext } from '../../src/types/messages';
 import { vscode } from './hooks/useVSCodeApi';
+import { setSvg } from './store/svgStore';
 import { Sparkles, Compass, Loader2, ChevronDown } from 'lucide-react';
 
 declare global {
   interface Window {
     __AUTOPIC_VIEW_MODE__?: 'sidebar' | 'studio';
+    __AUTOPIC_VERSION__?: string;
   }
 }
 
@@ -198,7 +200,7 @@ export default function App() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
-  const [candidates, setCandidates] = useState<IllustrationCandidate[]>(INITIAL_CARDS);
+  const [candidates, setCandidates] = useState<IllustrationCandidate[]>([]);
 
   // Column mode: 'auto' or 1 to 6 columns
   const [columns, setColumns] = useState<ColumnMode>('auto');
@@ -289,8 +291,15 @@ export default function App() {
                 return [...prev, ...fresh];
               });
             } else {
-              setCandidates(msg.results.length > 0 ? msg.results : INITIAL_CARDS);
+              setCandidates(msg.results);
             }
+          }
+          break;
+        }
+
+        case 'svgContent': {
+          if (typeof msg.svg === 'string' && typeof msg.slug === 'string') {
+            setSvg(msg.slug, msg.svg, msg.provider);
           }
           break;
         }
@@ -344,23 +353,6 @@ export default function App() {
     return () => observer.disconnect();
   }, [loadMore, candidates.length]);
 
-  // Window scroll fallback listener
-  useEffect(() => {
-    const onWindowScroll = () => {
-      const scrollHeight =
-        document.documentElement.scrollHeight || document.body.scrollHeight;
-      const scrollTop = window.scrollY || document.documentElement.scrollTop;
-      const clientHeight = window.innerHeight;
-      if (scrollHeight - scrollTop - clientHeight < 400) {
-        if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current) {
-          loadMore();
-        }
-      }
-    };
-    window.addEventListener('scroll', onWindowScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onWindowScroll);
-  }, [loadMore]);
-
   const triggerSearch = (q: string, p = provider, c = color) => {
     setLoading(true);
     loadingRef.current = true;
@@ -376,15 +368,6 @@ export default function App() {
       page: 1,
       append: false,
     });
-  };
-
-  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop - clientHeight < 400) {
-      if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current) {
-        loadMore();
-      }
-    }
   };
 
   const handleProviderChange = (newProvider: string) => {
@@ -406,8 +389,8 @@ export default function App() {
 
   const gridClassName =
     columns === 'auto'
-      ? 'grid gap-2.5 sm:gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-      : 'grid gap-2.5 sm:gap-3';
+      ? 'autopic-grid grid gap-2.5 sm:gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+      : 'autopic-grid grid gap-2.5 sm:gap-3';
 
   return (
     <div className="w-full h-full h-screen max-h-screen flex flex-col bg-vscode-bg text-vscode-fg selection:bg-indigo-500/30 overflow-hidden">
@@ -439,7 +422,6 @@ export default function App() {
       {/* Main Content Area with Infinite Scrolling */}
       <main
         ref={mainRef}
-        onScroll={handleScroll}
         className="flex-1 min-h-0 p-2.5 sm:p-3 overflow-y-auto"
       >
         {loading ? (
@@ -513,7 +495,7 @@ export default function App() {
       <footer className="px-3 py-1.5 border-t border-vscode-border bg-vscode-sidebarBg/40 text-[10px] text-vscode-fg/40 flex items-center justify-between shrink-0">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-indigo-400" />
-          <span>Autopic Studio v0.1.4</span>
+          <span>Autopic Studio v{window.__AUTOPIC_VERSION__ || '0.1.6'}</span>
         </span>
         <span className="flex items-center gap-2 font-mono">
           <span>{candidates.length} illustrations affichées</span>

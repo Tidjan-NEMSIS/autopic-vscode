@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw, Plus, Copy, Download, Check, ShieldCheck, Sparkles } from 'lucide-react';
 import { IllustrationCandidate } from '../../src/types/messages';
 import { vscode } from '../hooks/useVSCodeApi';
+import { useSvg } from '../store/svgStore';
+import { darkAdaptSvg, recolorSvg } from '../utils/svg';
 
 interface ZoomModalProps {
   candidate: IllustrationCandidate | null;
@@ -35,45 +37,19 @@ export const ZoomModal: React.FC<ZoomModalProps> = ({
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [svgContent, setSvgContent] = useState<string | null>(candidate?.svgContent || null);
   const [copied, setCopied] = useState<boolean>(false);
   const [inserted, setInserted] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const rawSvg = useSvg(candidate?.slug || '', candidate?.provider || '', !!candidate);
 
   // Reset zoom & pan when candidate changes
   useEffect(() => {
     if (candidate) {
       setZoomScale(1);
       setPan({ x: 0, y: 0 });
-      setSvgContent(candidate.svgContent || null);
-
-      vscode.postMessage({
-        command: 'getSvg',
-        slug: candidate.slug,
-        provider: candidate.provider,
-        color,
-      });
     }
   }, [candidate?.slug, candidate?.provider]);
-
-  // Listen for SVG updates from host
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data;
-      if (
-        msg &&
-        msg.type === 'svgContent' &&
-        candidate &&
-        msg.slug === candidate.slug &&
-        typeof msg.svg === 'string'
-      ) {
-        setSvgContent(msg.svg);
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [candidate?.slug]);
 
   // Handle escape key to close
   useEffect(() => {
@@ -156,14 +132,10 @@ export const ZoomModal: React.FC<ZoomModalProps> = ({
   };
 
   const renderedSvg = useMemo(() => {
-    if (!svgContent) return null;
-    return svgContent
-      .replace(/#6c63ff/gi, color)
-      .replace(/#6C63FF/gi, color)
-      .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
-      .replace(/#6366F1/gi, color)
-      .replace(/#8B5CF6/gi, color);
-  }, [svgContent, color]);
+    if (!rawSvg) return null;
+    const recolored = recolorSvg(rawSvg, color);
+    return isDark ? darkAdaptSvg(recolored) : recolored;
+  }, [rawSvg, color, isDark]);
 
   const licenseText: string =
     typeof candidate.license === 'string'

@@ -2,6 +2,26 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 
+function getNonce(): string {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+function getVersion(extensionUri: vscode.Uri): string {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(extensionUri.fsPath, 'package.json'), 'utf8')
+    );
+    return pkg.version || '0.1.6';
+  } catch {
+    return '0.1.6';
+  }
+}
+
 export function getWebviewContent(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
@@ -12,6 +32,8 @@ export function getWebviewContent(
 
   if (fs.existsSync(indexHtmlPath)) {
     let html = fs.readFileSync(indexHtmlPath, 'utf8');
+    const nonce = getNonce();
+    const version = getVersion(extensionUri);
 
     // Replace relative assets paths with webview URIs
     html = html.replace(/(href|src)="\/?assets\/([^"]+)"/g, (match, attr, filename) => {
@@ -25,12 +47,16 @@ export function getWebviewContent(
     html = html.replace(/crossorigin/g, '');
 
     // Inject CSP meta tag
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; script-src 'unsafe-inline' ${webview.cspSource}; style-src 'unsafe-inline' ${webview.cspSource}; font-src ${webview.cspSource}; connect-src ${webview.cspSource} https:;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; script-src 'nonce-${nonce}' ${webview.cspSource}; style-src 'unsafe-inline' ${webview.cspSource}; font-src ${webview.cspSource}; connect-src ${webview.cspSource} https:;">`;
     html = html.replace('<head>', `<head>\n    ${cspMeta}`);
 
-    // Inject initial viewMode into window
-    const injectedScript = `<script>window.__AUTOPIC_VIEW_MODE__ = "${viewMode}";</script>`;
+    // Inject initial viewMode and version into window
+    const injectedScript = `<script nonce="${nonce}">window.__AUTOPIC_VIEW_MODE__ = "${viewMode}"; window.__AUTOPIC_VERSION__ = "${version}";</script>`;
     html = html.replace('</head>', `    ${injectedScript}\n  </head>`);
+
+    // Add nonce to Vite-generated module scripts
+    html = html.replace(/<script(?![^>]*nonce)/g, `<script nonce="${nonce}"`);
+
     return html;
   }
 

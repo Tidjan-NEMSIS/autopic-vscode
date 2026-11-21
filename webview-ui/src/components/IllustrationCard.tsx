@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Download, Copy, Check, ZoomIn } from 'lucide-react';
 import { IllustrationCandidate } from '../../src/types/messages';
 import { vscode } from '../hooks/useVSCodeApi';
+import { useSvg } from '../store/svgStore';
+import { darkAdaptSvg, recolorSvg } from '../utils/svg';
 
 interface IllustrationCardProps {
   candidate: IllustrationCandidate;
@@ -20,39 +22,28 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [inserting, setInserting] = useState(false);
-  const [rawSvg, setRawSvg] = useState<string | null>(candidate.svgContent || null);
+  const [visible, setVisible] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const rawSvg = useSvg(candidate.slug, candidate.provider, visible);
 
   useEffect(() => {
-    if (!rawSvg) {
-      vscode.postMessage({
-        command: 'getSvg',
-        slug: candidate.slug,
-        provider: candidate.provider,
-      });
-    }
-  }, [candidate.slug, candidate.provider]);
+    const element = cardRef.current;
+    if (!element) return;
 
-  useEffect(() => {
-    if (candidate.svgContent) {
-      setRawSvg(candidate.svgContent);
-    }
-  }, [candidate.svgContent]);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
 
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data;
-      if (
-        msg &&
-        msg.type === 'svgContent' &&
-        msg.slug === candidate.slug &&
-        typeof msg.svg === 'string'
-      ) {
-        setRawSvg(msg.svg);
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [candidate.slug]);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const handleInsert = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -85,26 +76,22 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
     });
   };
 
-  // Safe string license extraction
   const licenseText: string =
     typeof candidate.license === 'string'
       ? candidate.license
       : (candidate.license as any)?.name || 'Approved Free';
 
-  // Instantaneous zero-latency recoloring across unDraw, Open Peeps & IRA Design
   const renderedSvg = useMemo(() => {
     if (!rawSvg) return null;
-    return rawSvg
-      .replace(/#6c63ff/gi, color)
-      .replace(/#6C63FF/gi, color)
-      .replace(/rgb\(108\s*,\s*99\s*,\s*255\)/gi, color)
-      .replace(/#6366F1/gi, color)
-      .replace(/#8B5CF6/gi, color);
-  }, [rawSvg, color]);
+    const recolored = recolorSvg(rawSvg, color);
+    return isDark ? darkAdaptSvg(recolored) : recolored;
+  }, [rawSvg, color, isDark]);
 
   return (
-    <div className="group flex flex-col bg-vscode-inputBg/40 hover:bg-vscode-inputBg/80 border border-vscode-border rounded-lg overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-indigo-500/60">
-      {/* SVG Preview Container (Click to Zoom) */}
+    <div
+      ref={cardRef}
+      className="group flex flex-col bg-vscode-inputBg/40 hover:bg-vscode-inputBg/80 border border-vscode-border rounded-lg overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-indigo-500/60"
+    >
       <div
         onClick={() => onOpenZoom(candidate)}
         title="Cliquer pour agrandir et zoomer"
@@ -124,7 +111,6 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
           </div>
         )}
 
-        {/* Hover zoom center pill badge */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/25 pointer-events-none">
           <span className="px-2 py-1 bg-black/75 text-white rounded-full text-[10px] font-medium backdrop-blur-sm flex items-center gap-1 shadow-lg border border-white/10 scale-95 group-hover:scale-100 transition-transform">
             <ZoomIn className="w-3 h-3 text-indigo-400" />
@@ -132,7 +118,6 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
           </span>
         </div>
 
-        {/* Quick Actions overlay on hover (top right) */}
         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button
             onClick={(e) => {
@@ -164,7 +149,6 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
           </button>
         </div>
 
-        {/* Score badge (bottom left) */}
         <div className="absolute bottom-1.5 left-1.5 z-10 pointer-events-none">
           <span className="text-[9px] font-mono font-bold bg-vscode-sidebarBg/90 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded shadow-sm">
             {candidate.score}%
@@ -172,7 +156,6 @@ export const IllustrationCard: React.FC<IllustrationCardProps> = ({
         </div>
       </div>
 
-      {/* Info & CTA */}
       <div className="p-2 sm:p-2.5 flex flex-col gap-1.5 flex-1 justify-between">
         <div>
           <h4
