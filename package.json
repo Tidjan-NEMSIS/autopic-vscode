@@ -109,7 +109,6 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
-    "myonlinecv-next": "file:../myonlinecv-next",
     "tidjan-autopic": "^2.0.1"
   }
 }
